@@ -1,0 +1,2 @@
+# SampleBottomText
+Sample plugin
