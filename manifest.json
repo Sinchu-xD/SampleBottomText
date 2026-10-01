@@ -1,0 +1,22 @@
+[
+  {
+    "name": "SampleBottomText",
+    "description": "Sample plugin",
+    "overview": "Sample plugin for demonstration",
+    "owner": "Sinchu-xD",
+    "category": "Metadata",
+    "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "initial",
+        "targetAbi": "10.11.5.0",
+        "sourceUrl": "https://github.com/Sinchu-xD/SampleBottomText/releases/download/v1.0.0/SampleBottomText.zip",
+        "checksum": "",
+        "timestamp": "2026-10-01T00:00:00Z",
+        "repositoryName": "SampleBottomText",
+        "repositoryUrl": "https://raw.githubusercontent.com/Sinchu-xD/SampleBottomText/main/manifest.json"
+      }
+    ]
+  }
+]
