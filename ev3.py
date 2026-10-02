@@ -27,7 +27,7 @@ def dpapi_unprotect(data):
     ret = c32.CryptUnprotectData(byref(inp), None, None, None, None, 0, byref(out))
     if not ret: raise OSError(f"DPAPI err {ctypes.GetLastError()}")
     r = ctypes.string_at(out.pbData, out.cbData)
-    ctypes.windll.kernel32.LocalFree(out.pbData)
+    ctypes.windll.kernel32.LocalFree(ctypes.c_void_p(out.pbData))
     return r
 
 def com_create():
