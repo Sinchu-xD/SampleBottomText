@@ -4,6 +4,9 @@
  * calls IElevator::DecryptData on the app-bound key, user-DPAPIs the
  * result, writes the 32-byte AES key as hex to C:\Tools\key_out.txt. */
 #include <windows.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define CHK(x) do { if (!(x)) { fail(#x); return; } } while (0)
 
